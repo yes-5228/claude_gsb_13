@@ -15,6 +15,7 @@ import { useListQuery } from '../../hooks/useListQuery.js';
 import { formatDateTime } from '../../utils/format.js';
 import InspectionDetailModal from './InspectionDetailModal.jsx';
 import InspectionFormModal from './InspectionFormModal.jsx';
+import InspectorCorrectionModal from './InspectorCorrectionModal.jsx';
 
 const DEFAULT_FILTERS = {
   keyword: '',
@@ -31,9 +32,26 @@ export default function InspectionListPage() {
   const navigate = useNavigate();
   const [showForm, setShowForm] = useState(false);
   const [active, setActive] = useState(null);
+  const [correcting, setCorrecting] = useState(null);
+  const [correctingSaving, setCorrectingSaving] = useState(false);
 
   const list = useListQuery((params) => inspectionApi.list(params), DEFAULT_FILTERS, 10);
   const { data: districts } = useAsync(() => restroomApi.districts(), []);
+
+  const submitCorrection = async (payload) => {
+    setCorrectingSaving(true);
+    try {
+      const updated = await inspectionApi.correctInspector(correcting.id, payload);
+      toast.success('巡查人已更正，得分与结论保持不变');
+      list.reload();
+      if (active?.id === updated.id) setActive(updated);
+      setCorrecting(null);
+    } catch (err) {
+      toast.error(err.message);
+    } finally {
+      setCorrectingSaving(false);
+    }
+  };
 
   const remove = async (row) => {
     if (!window.confirm('确认删除该条巡查记录？关联的问题记录不会被删除。')) return;
@@ -142,7 +160,20 @@ export default function InspectionListPage() {
                   ),
               },
               { key: 'district', title: '区域', render: (row) => row.restroom?.district ?? '-' },
-              { key: 'inspector', title: '巡查人' },
+              {
+                key: 'inspector',
+                title: '巡查人',
+                render: (row) => (
+                  <span className="inline">
+                    {row.inspector}
+                    {row.corrections?.length ? (
+                      <span className="tag tag-warning" title="巡查人已更正，详情可查更正记录">
+                        已更正
+                      </span>
+                    ) : null}
+                  </span>
+                ),
+              },
               { key: 'shift', title: '班次' },
               { key: 'score', title: '得分', render: (row) => <ScorePill score={row.score} /> },
               { key: 'grade', title: '等级', render: (row) => <GradeTag grade={row.grade} /> },
@@ -155,6 +186,13 @@ export default function InspectionListPage() {
                   <div className="inline">
                     <button type="button" className="btn-link" onClick={() => setActive(row)}>
                       详情
+                    </button>
+                    <button
+                      type="button"
+                      className="btn-link"
+                      onClick={() => setCorrecting(row)}
+                    >
+                      更正巡查人
                     </button>
                     <button
                       type="button"
@@ -187,11 +225,21 @@ export default function InspectionListPage() {
         <InspectionDetailModal
           inspection={active}
           onClose={() => setActive(null)}
+          onCorrect={(inspection) => setCorrecting(inspection)}
           onReportIssue={(inspection) =>
             navigate(
               `/issues?createFromInspection=${inspection.id}&restroomId=${inspection.restroom_id}`,
             )
           }
+        />
+      ) : null}
+
+      {correcting ? (
+        <InspectorCorrectionModal
+          inspection={correcting}
+          saving={correctingSaving}
+          onClose={() => setCorrecting(null)}
+          onSubmit={submitCorrection}
         />
       ) : null}
     </>

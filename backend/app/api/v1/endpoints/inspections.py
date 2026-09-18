@@ -9,7 +9,12 @@ from sqlalchemy.orm import Session
 from app.api.deps import PaginationDep, build_meta
 from app.core.database import get_db
 from app.schemas.common import MessageOut, Page
-from app.schemas.inspection import InspectionCreate, InspectionOut, InspectionUpdate
+from app.schemas.inspection import (
+    InspectionCreate,
+    InspectionOut,
+    InspectionUpdate,
+    InspectorCorrectionCreate,
+)
 from app.services import inspection_service
 
 router = APIRouter(prefix="/inspections", tags=["保洁巡查"])
@@ -69,6 +74,21 @@ def update_inspection(
 ) -> InspectionOut:
     return inspection_service.to_out(
         inspection_service.update_inspection(db, inspection_id, payload)
+    )
+
+
+@router.post(
+    "/{inspection_id}/inspector-correction",
+    response_model=InspectionOut,
+    summary="更正巡查人（留存原因与原值，得分结论不变）",
+)
+def correct_inspector(
+    inspection_id: int,
+    payload: InspectorCorrectionCreate,
+    db: Annotated[Session, Depends(get_db)],
+) -> InspectionOut:
+    return inspection_service.to_out(
+        inspection_service.correct_inspector(db, inspection_id, payload)
     )
 
 

@@ -2,7 +2,7 @@
 
 from datetime import datetime
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from app.core.constants import Shift
 from app.schemas.restroom import RestroomBrief
@@ -26,11 +26,43 @@ class InspectionCreate(BaseModel):
 
 
 class InspectionUpdate(BaseModel):
-    inspector: str | None = Field(default=None, max_length=60)
     shift: Shift | None = None
     inspect_time: datetime | None = None
     items: list[InspectionItem] | None = Field(default=None, min_length=1)
     remark: str | None = Field(default=None, max_length=500)
+
+
+class InspectorCorrectionCreate(BaseModel):
+    """巡查人更正申请：新巡查人与更正原因必填。"""
+
+    corrected_inspector: str = Field(min_length=1, max_length=60, description="更正后的巡查人")
+    reason: str = Field(min_length=1, max_length=500, description="更正原因")
+    operator: str = Field(default="", max_length=60, description="执行更正的操作人")
+
+    @field_validator("corrected_inspector", "reason", mode="before")
+    @classmethod
+    def _strip_required(cls, value):
+        if isinstance(value, str):
+            return value.strip()
+        return value
+
+    @field_validator("operator", mode="before")
+    @classmethod
+    def _strip_optional(cls, value):
+        return value.strip() if isinstance(value, str) else value
+
+
+class InspectorCorrectionOut(BaseModel):
+    """一条巡查人更正记录。"""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    original_inspector: str
+    corrected_inspector: str
+    reason: str
+    operator: str
+    created_at: datetime
 
 
 class InspectionBrief(BaseModel):
@@ -61,3 +93,4 @@ class InspectionOut(BaseModel):
     remark: str | None = None
     created_at: datetime
     issue_count: int = 0
+    corrections: list[InspectorCorrectionOut] = Field(default_factory=list)

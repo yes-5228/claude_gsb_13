@@ -2,12 +2,17 @@
 
 from datetime import date, datetime, time
 
-from sqlalchemy import func, or_, select
-from sqlalchemy.orm import Session
+from sqlalchemy import exists, func, or_, select
+from sqlalchemy.orm import Session, selectinload
 
 from app.core.exceptions import DomainError, NotFoundError
-from app.models import Inspection, Restroom
-from app.schemas.inspection import InspectionCreate, InspectionOut, InspectionUpdate
+from app.models import Inspection, InspectorCorrection, Restroom
+from app.schemas.inspection import (
+    InspectionCreate,
+    InspectionOut,
+    InspectionUpdate,
+    InspectorCorrectionCreate,
+)
 from app.services import restroom_service, scoring
 
 SORTABLE_FIELDS = {
@@ -16,6 +21,17 @@ SORTABLE_FIELDS = {
     "inspector": Inspection.inspector,
     "created_at": Inspection.created_at,
 }
+
+
+def _correction_inspector_match(like_value: str):
+    """存在性条件：更正流水中的原巡查人或更正后巡查人命中关键字。"""
+    return exists().where(
+        InspectorCorrection.inspection_id == Inspection.id,
+        or_(
+            InspectorCorrection.original_inspector.like(like_value),
+            InspectorCorrection.corrected_inspector.like(like_value),
+        ),
+    )
 
 
 def _normalize_items(items: list) -> list[dict]:
@@ -66,7 +82,7 @@ def list_inspections(
     sort_by: str = "inspect_time",
     order: str = "desc",
 ) -> tuple[list[Inspection], int]:
-    stmt = select(Inspection)
+    stmt = select(Inspection).options(selectinload(Inspection.corrections))
     if district:
         stmt = stmt.join(Restroom, Restroom.id == Inspection.restroom_id).where(
             Restroom.district == district
@@ -74,7 +90,10 @@ def list_inspections(
     if restroom_id:
         stmt = stmt.where(Inspection.restroom_id == restroom_id)
     if inspector:
-        stmt = stmt.where(Inspection.inspector.like(f"%{inspector.strip()}%"))
+        kw = f"%{inspector.strip()}%"
+        stmt = stmt.where(
+            or_(Inspection.inspector.like(kw), _correction_inspector_match(kw))
+        )
     if shift:
         stmt = stmt.where(Inspection.shift == shift)
     if result:
@@ -89,6 +108,7 @@ def list_inspections(
             or_(
                 Inspection.inspector.like(like),
                 Inspection.remark.like(like),
+                _correction_inspector_match(like),
                 Inspection.restroom_id.in_(select(Restroom.id).where(Restroom.name.like(like))),
             )
         )
@@ -132,14 +152,37 @@ def update_inspection(db: Session, inspection_id: int, payload: InspectionUpdate
         inspection.score = score
         inspection.grade = grade
         inspection.result = result
-    if data.get("inspector") is not None:
-        inspection.inspector = payload.inspector or inspection.inspector
     if data.get("shift") is not None and payload.shift is not None:
         inspection.shift = payload.shift.value if hasattr(payload.shift, "value") else payload.shift
     if data.get("inspect_time") is not None and payload.inspect_time is not None:
         inspection.inspect_time = payload.inspect_time
     if "remark" in data:
         inspection.remark = payload.remark
+    db.commit()
+    db.refresh(inspection)
+    return inspection
+
+
+def correct_inspector(
+    db: Session, inspection_id: int, payload: InspectorCorrectionCreate
+) -> Inspection:
+    """更正巡查人：记录原巡查人与更正原因，但不改变得分、等级与结论。"""
+    inspection = get_inspection(db, inspection_id)
+    new_inspector = payload.corrected_inspector.strip()
+    reason = payload.reason.strip()
+    if new_inspector == inspection.inspector:
+        raise DomainError("更正后的巡查人与当前巡查人相同，无需更正")
+
+    inspection.corrections.append(
+        InspectorCorrection(
+            original_inspector=inspection.inspector,
+            corrected_inspector=new_inspector,
+            reason=reason,
+            operator=payload.operator.strip(),
+        )
+    )
+    # 仅更新巡查人；items/score/grade/result 一律保持原值，确保得分与结论不受更正影响。
+    inspection.inspector = new_inspector
     db.commit()
     db.refresh(inspection)
     return inspection

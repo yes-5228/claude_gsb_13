@@ -7,6 +7,8 @@ from app.schemas.inspection import (
     InspectionItem,
     InspectionOut,
     InspectionUpdate,
+    InspectorCorrectionCreate,
+    InspectorCorrectionOut,
 )
 from app.schemas.issue import (
     IssueCreate,
