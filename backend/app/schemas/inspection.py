@@ -26,11 +26,28 @@ class InspectionCreate(BaseModel):
 
 
 class InspectionUpdate(BaseModel):
-    inspector: str | None = Field(default=None, max_length=60)
     shift: Shift | None = None
     inspect_time: datetime | None = None
     items: list[InspectionItem] | None = Field(default=None, min_length=1)
     remark: str | None = Field(default=None, max_length=500)
+
+
+class InspectorCorrectionCreate(BaseModel):
+    """更正巡查人：必须填写更正后的巡查人与更正原因。"""
+
+    inspector: str = Field(min_length=1, max_length=60, description="更正后的巡查人")
+    reason: str = Field(min_length=1, max_length=200, description="更正原因")
+
+
+class InspectorCorrectionOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    inspection_id: int
+    from_inspector: str
+    to_inspector: str
+    reason: str
+    created_at: datetime
 
 
 class InspectionBrief(BaseModel):
@@ -61,3 +78,4 @@ class InspectionOut(BaseModel):
     remark: str | None = None
     created_at: datetime
     issue_count: int = 0
+    corrections: list[InspectorCorrectionOut] = Field(default_factory=list)

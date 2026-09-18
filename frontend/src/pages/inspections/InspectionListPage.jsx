@@ -15,10 +15,12 @@ import { useListQuery } from '../../hooks/useListQuery.js';
 import { formatDateTime } from '../../utils/format.js';
 import InspectionDetailModal from './InspectionDetailModal.jsx';
 import InspectionFormModal from './InspectionFormModal.jsx';
+import InspectorCorrectionModal from './InspectorCorrectionModal.jsx';
 
 const DEFAULT_FILTERS = {
   keyword: '',
   district: '',
+  inspector: '',
   shift: '',
   result: '',
   date_from: '',
@@ -31,6 +33,8 @@ export default function InspectionListPage() {
   const navigate = useNavigate();
   const [showForm, setShowForm] = useState(false);
   const [active, setActive] = useState(null);
+  const [correcting, setCorrecting] = useState(null);
+  const [savingCorrection, setSavingCorrection] = useState(false);
 
   const list = useListQuery((params) => inspectionApi.list(params), DEFAULT_FILTERS, 10);
   const { data: districts } = useAsync(() => restroomApi.districts(), []);
@@ -43,6 +47,22 @@ export default function InspectionListPage() {
       list.reload();
     } catch (err) {
       toast.error(err.message);
+    }
+  };
+
+  const submitCorrection = async (payload) => {
+    if (!correcting) return;
+    setSavingCorrection(true);
+    try {
+      const updated = await inspectionApi.correctInspector(correcting.id, payload);
+      toast.success('巡查人已更正，更正记录已保留');
+      setCorrecting(null);
+      setActive(updated);
+      list.reload();
+    } catch (err) {
+      toast.error(err.message);
+    } finally {
+      setSavingCorrection(false);
     }
   };
 
@@ -77,6 +97,13 @@ export default function InspectionListPage() {
                   <option key={item}>{item}</option>
                 ))}
               </select>
+            </Field>
+            <Field label="巡查人">
+              <input
+                value={list.filters.inspector}
+                placeholder="含更正前巡查人"
+                onChange={(event) => list.updateFilter('inspector', event.target.value)}
+              />
             </Field>
             <Field label="班次">
               <select
@@ -187,11 +214,21 @@ export default function InspectionListPage() {
         <InspectionDetailModal
           inspection={active}
           onClose={() => setActive(null)}
+          onCorrectInspector={(inspection) => setCorrecting(inspection)}
           onReportIssue={(inspection) =>
             navigate(
               `/issues?createFromInspection=${inspection.id}&restroomId=${inspection.restroom_id}`,
             )
           }
+        />
+      ) : null}
+
+      {correcting ? (
+        <InspectorCorrectionModal
+          inspection={correcting}
+          saving={savingCorrection}
+          onClose={() => setCorrecting(null)}
+          onSubmit={submitCorrection}
         />
       ) : null}
     </>

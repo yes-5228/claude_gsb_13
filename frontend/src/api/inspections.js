@@ -8,4 +8,6 @@ export const inspectionApi = {
   create: (payload) => http.post(RESOURCE, payload),
   update: (id, payload) => http.patch(`${RESOURCE}/${id}`, payload),
   remove: (id) => http.delete(`${RESOURCE}/${id}`),
+  correctInspector: (id, payload) => http.post(`${RESOURCE}/${id}/inspector-corrections`, payload),
+  corrections: (id) => http.get(`${RESOURCE}/${id}/inspector-corrections`),
 };

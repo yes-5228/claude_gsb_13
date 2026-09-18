@@ -104,6 +104,83 @@ def test_inspection_scoring_and_filter(client, restroom):
     assert empty.status_code == 422
 
 
+def test_inspector_correction(client, restroom):
+    record = client.post(
+        "/api/v1/inspections",
+        json={
+            "restroom_id": restroom["id"],
+            "inspector": "张巡查",
+            "shift": "早班",
+            "items": full_items(9),
+            "remark": "整体良好",
+        },
+    ).json()
+    assert record["corrections"] == []
+
+    # 更正必须说明原因
+    missing_reason = client.post(
+        f"/api/v1/inspections/{record['id']}/inspector-corrections",
+        json={"inspector": "李巡查"},
+    )
+    assert missing_reason.status_code == 422
+
+    blank_reason = client.post(
+        f"/api/v1/inspections/{record['id']}/inspector-corrections",
+        json={"inspector": "李巡查", "reason": "   "},
+    )
+    assert blank_reason.status_code == 400
+
+    # 与当前巡查人一致时拒绝更正
+    unchanged = client.post(
+        f"/api/v1/inspections/{record['id']}/inspector-corrections",
+        json={"inspector": "张巡查", "reason": "测试"},
+    )
+    assert unchanged.status_code == 400
+
+    corrected = client.post(
+        f"/api/v1/inspections/{record['id']}/inspector-corrections",
+        json={"inspector": "李巡查", "reason": "录入时选错人员"},
+    ).json()
+    assert corrected["inspector"] == "李巡查"
+    # 得分与结论不因更正而变化
+    assert corrected["score"] == record["score"]
+    assert corrected["grade"] == record["grade"]
+    assert corrected["result"] == record["result"]
+    # 原内容保留在更正记录中
+    assert len(corrected["corrections"]) == 1
+    correction = corrected["corrections"][0]
+    assert correction["from_inspector"] == "张巡查"
+    assert correction["to_inspector"] == "李巡查"
+    assert correction["reason"] == "录入时选错人员"
+
+    # 再次更正形成连续留痕
+    again = client.post(
+        f"/api/v1/inspections/{record['id']}/inspector-corrections",
+        json={"inspector": "王巡查", "reason": "班组调整"},
+    ).json()
+    assert again["inspector"] == "王巡查"
+    assert [item["to_inspector"] for item in again["corrections"]] == ["李巡查", "王巡查"]
+    assert again["score"] == record["score"]
+    assert again["result"] == record["result"]
+
+    # 更正记录可单独查询
+    history = client.get(f"/api/v1/inspections/{record['id']}/inspector-corrections").json()
+    assert [item["from_inspector"] for item in history] == ["张巡查", "李巡查"]
+
+    # 更正前后的巡查人都能在列表中检索到该记录
+    for name in ("张巡查", "李巡查", "王巡查"):
+        found = client.get("/api/v1/inspections", params={"inspector": name}).json()
+        assert record["id"] in {item["id"] for item in found["items"]}, name
+
+    # 普通更新不再直接修改巡查人
+    patched = client.patch(
+        f"/api/v1/inspections/{record['id']}",
+        json={"inspector": "赵巡查", "remark": "补充备注"},
+    ).json()
+    assert patched["inspector"] == "王巡查"
+    assert patched["remark"] == "补充备注"
+
+
 def test_issue_lifecycle(client, restroom):
     inspection = client.post(
         "/api/v1/inspections",

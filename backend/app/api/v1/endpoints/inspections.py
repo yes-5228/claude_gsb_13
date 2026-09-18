@@ -9,7 +9,13 @@ from sqlalchemy.orm import Session
 from app.api.deps import PaginationDep, build_meta
 from app.core.database import get_db
 from app.schemas.common import MessageOut, Page
-from app.schemas.inspection import InspectionCreate, InspectionOut, InspectionUpdate
+from app.schemas.inspection import (
+    InspectionCreate,
+    InspectionOut,
+    InspectionUpdate,
+    InspectorCorrectionCreate,
+    InspectorCorrectionOut,
+)
 from app.services import inspection_service
 
 router = APIRouter(prefix="/inspections", tags=["保洁巡查"])
@@ -61,6 +67,33 @@ def create_inspection(
 @router.get("/{inspection_id}", response_model=InspectionOut, summary="巡查记录详情")
 def get_inspection(inspection_id: int, db: Annotated[Session, Depends(get_db)]) -> InspectionOut:
     return inspection_service.to_out(inspection_service.get_inspection(db, inspection_id))
+
+
+@router.post(
+    "/{inspection_id}/inspector-corrections",
+    response_model=InspectionOut,
+    summary="更正巡查人",
+)
+def correct_inspector(
+    inspection_id: int,
+    payload: InspectorCorrectionCreate,
+    db: Annotated[Session, Depends(get_db)],
+) -> InspectionOut:
+    """巡查人填错时更正：必须说明原因，原巡查人留痕，得分与结论不变。"""
+    return inspection_service.to_out(
+        inspection_service.correct_inspector(db, inspection_id, payload)
+    )
+
+
+@router.get(
+    "/{inspection_id}/inspector-corrections",
+    response_model=list[InspectorCorrectionOut],
+    summary="巡查人更正记录",
+)
+def list_inspector_corrections(
+    inspection_id: int, db: Annotated[Session, Depends(get_db)]
+) -> list[InspectorCorrectionOut]:
+    return inspection_service.list_inspector_corrections(db, inspection_id)
 
 
 @router.patch("/{inspection_id}", response_model=InspectionOut, summary="更新巡查记录")

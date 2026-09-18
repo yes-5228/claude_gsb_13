@@ -3,8 +3,10 @@ import DetailList from '../../components/DetailList.jsx';
 import { GradeTag, ScorePill, StatusTag } from '../../components/Tags.jsx';
 import { formatDateTime } from '../../utils/format.js';
 
-export default function InspectionDetailModal({ inspection, onClose, onReportIssue }) {
+export default function InspectionDetailModal({ inspection, onClose, onReportIssue, onCorrectInspector }) {
   if (!inspection) return null;
+
+  const corrections = inspection.corrections || [];
 
   return (
     <Modal
@@ -15,6 +17,9 @@ export default function InspectionDetailModal({ inspection, onClose, onReportIss
         <>
           <button type="button" className="btn" onClick={onClose}>
             关闭
+          </button>
+          <button type="button" className="btn" onClick={() => onCorrectInspector(inspection)}>
+            更正巡查人
           </button>
           <button
             type="button"
@@ -29,7 +34,19 @@ export default function InspectionDetailModal({ inspection, onClose, onReportIss
       <DetailList
         items={[
           { label: '巡查时间', value: formatDateTime(inspection.inspect_time) },
-          { label: '巡查人', value: inspection.inspector },
+          {
+            label: '巡查人',
+            value: (
+              <span>
+                {inspection.inspector}
+                {corrections.length ? (
+                  <span className="muted" style={{ marginLeft: 8, fontSize: 12 }}>
+                    （已更正 {corrections.length} 次）
+                  </span>
+                ) : null}
+              </span>
+            ),
+          },
           { label: '班次', value: inspection.shift },
           { label: '得分', value: <ScorePill score={inspection.score} /> },
           { label: '评分等级', value: <GradeTag grade={inspection.grade} /> },
@@ -38,6 +55,25 @@ export default function InspectionDetailModal({ inspection, onClose, onReportIss
           { label: '巡查备注', value: inspection.remark || '无' },
         ]}
       />
+
+      {corrections.length ? (
+        <>
+          <div className="section-title">巡查人更正记录</div>
+          <ol className="timeline">
+            {corrections.map((item) => (
+              <li key={item.id}>
+                <div className="head">
+                  <strong>
+                    {item.from_inspector} → {item.to_inspector}
+                  </strong>
+                  <span className="time">{formatDateTime(item.created_at)}</span>
+                </div>
+                <div className="remark">更正原因：{item.reason}</div>
+              </li>
+            ))}
+          </ol>
+        </>
+      ) : null}
 
       <div className="section-title">检查项明细</div>
       <div className="check-grid">

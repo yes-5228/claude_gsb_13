@@ -6,8 +6,13 @@ from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
 from app.core.exceptions import DomainError, NotFoundError
-from app.models import Inspection, Restroom
-from app.schemas.inspection import InspectionCreate, InspectionOut, InspectionUpdate
+from app.models import Inspection, InspectorCorrection, Restroom
+from app.schemas.inspection import (
+    InspectionCreate,
+    InspectionOut,
+    InspectionUpdate,
+    InspectorCorrectionCreate,
+)
 from app.services import restroom_service, scoring
 
 SORTABLE_FIELDS = {
@@ -74,7 +79,21 @@ def list_inspections(
     if restroom_id:
         stmt = stmt.where(Inspection.restroom_id == restroom_id)
     if inspector:
-        stmt = stmt.where(Inspection.inspector.like(f"%{inspector.strip()}%"))
+        like = f"%{inspector.strip()}%"
+        stmt = stmt.where(
+            or_(
+                Inspection.inspector.like(like),
+                # 更正前后的巡查人都可以检索到该记录
+                Inspection.id.in_(
+                    select(InspectorCorrection.inspection_id).where(
+                        or_(
+                            InspectorCorrection.from_inspector.like(like),
+                            InspectorCorrection.to_inspector.like(like),
+                        )
+                    )
+                ),
+            )
+        )
     if shift:
         stmt = stmt.where(Inspection.shift == shift)
     if result:
@@ -132,8 +151,6 @@ def update_inspection(db: Session, inspection_id: int, payload: InspectionUpdate
         inspection.score = score
         inspection.grade = grade
         inspection.result = result
-    if data.get("inspector") is not None:
-        inspection.inspector = payload.inspector or inspection.inspector
     if data.get("shift") is not None and payload.shift is not None:
         inspection.shift = payload.shift.value if hasattr(payload.shift, "value") else payload.shift
     if data.get("inspect_time") is not None and payload.inspect_time is not None:
@@ -143,6 +160,37 @@ def update_inspection(db: Session, inspection_id: int, payload: InspectionUpdate
     db.commit()
     db.refresh(inspection)
     return inspection
+
+
+def correct_inspector(
+    db: Session, inspection_id: int, payload: InspectorCorrectionCreate
+) -> Inspection:
+    """更正填错的巡查人：留存更正前后内容与原因，得分与结论保持不变。"""
+    inspection = get_inspection(db, inspection_id)
+    new_inspector = payload.inspector.strip()
+    if not new_inspector:
+        raise DomainError("更正后的巡查人不能为空")
+    reason = payload.reason.strip()
+    if not reason:
+        raise DomainError("更正巡查人必须说明原因")
+    if new_inspector == inspection.inspector:
+        raise DomainError("更正后的巡查人与当前巡查人一致，无需更正")
+    correction = InspectorCorrection(
+        inspection_id=inspection.id,
+        from_inspector=inspection.inspector,
+        to_inspector=new_inspector,
+        reason=reason,
+    )
+    inspection.inspector = new_inspector
+    db.add(correction)
+    db.commit()
+    db.refresh(inspection)
+    return inspection
+
+
+def list_inspector_corrections(db: Session, inspection_id: int) -> list[InspectorCorrection]:
+    inspection = get_inspection(db, inspection_id)
+    return list(inspection.corrections)
 
 
 def delete_inspection(db: Session, inspection_id: int) -> None:
